@@ -89,6 +89,22 @@
           body: JSON.stringify(data)
         });
       } catch {}
+      // Sync to Google Sheets
+      syncToSheets(weekKey, data);
+    }
+
+    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyx3FHeVulLnMPRu2SBUD1f80T4poD5LWXO_87R_4G6tQpXZCf67uaVMOKFJt_Ic1Ae/exec";
+
+    function syncToSheets(weekKey, data) {
+      try {
+        const students = Object.keys(data).map(name => ({ name, data: data[name] }));
+        fetch(SHEETS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ weekKey, students }),
+          mode: "no-cors"
+        });
+      } catch {}
     }
 
     function Avatar({ name, size = 36 }) {
