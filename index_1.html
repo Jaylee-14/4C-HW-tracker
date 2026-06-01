@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>4C Home Learning Tracker 🚀</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Nunito', sans-serif; background: #F8F8F8; -webkit-tap-highlight-color: transparent; }
+    button { font-family: 'Nunito', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const STUDENTS = [
+      "Aadvik","Alara","Ayaan","Ayberk","Bihaan",
+      "Calvin","Camila","Flynn","Gurnaz","Harriet",
+      "Jacob","Jasmira","Jay","Lein","Lila",
+      "Lina","Louis","Oliver","Olivia","Roxy",
+      "Sandra","Tiffany A","Tiffany B","Vincent"
+    ];
+
+    const DAYS = ["Mon","Tue","Wed","Thu","Fri"];
+
+    const CATS = {
+      diaries:  { label:"Diaries",  emoji:"📔", color:"#FF6B6B", bg:"#FFF0F0", soft:"#FFD6D6", dark:"#8B0000", max:5, desc:"Tap each day a student brings their diary in" },
+      reading:  { label:"Reading",  emoji:"📚", color:"#4ECDC4", bg:"#F0FFFE", soft:"#B2EFEB", dark:"#006B65", max:5, desc:"Tap each night a student completes their reading" },
+      homework: { label:"Homework", emoji:"📝", color:"#FFD93D", bg:"#FFFBEA", soft:"#FFF0A0", dark:"#7A6000", max:1, desc:"Tap when a student submits their weekly homework" }
+    };
+
+    const MEDALS = ["🥇","🥈","🥉"];
+
+    function getWeekKey() {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const mon = new Date(new Date(d).setDate(diff));
+      return `4c-week-${mon.getFullYear()}-${mon.getMonth()+1}-${mon.getDate()}`;
+    }
+
+    function initData() {
+      const d = {};
+      STUDENTS.forEach(s => {
+        d[s] = {
+          diaries:  { Mon:false, Tue:false, Wed:false, Thu:false, Fri:false },
+          reading:  { Mon:false, Tue:false, Wed:false, Thu:false, Fri:false },
+          homework: false
+        };
+      });
+      return d;
+    }
+
+    function calcScore(sd, cat) {
+      if (cat === "homework") return sd.homework ? 1 : 0;
+      return Object.values(sd[cat]).filter(Boolean).length;
+    }
+
+    function calcTotal(sd) {
+      return calcScore(sd,"diaries") + calcScore(sd,"reading") + (sd.homework ? 1 : 0);
+    }
+
+    const FIREBASE_URL = "https://c-homework-and-reading-default-rtdb.firebaseio.com";
+
+    async function loadData(weekKey) {
+      try {
+        const res = await fetch(`${FIREBASE_URL}/${weekKey}.json`);
+        if (!res.ok) return null;
+        const parsed = await res.json();
+        if (!parsed) return null;
+        const merged = initData();
+        Object.keys(parsed).forEach(s => { if (merged[s]) merged[s] = parsed[s]; });
+        return merged;
+      } catch { return null; }
+    }
+
+    function saveData(weekKey, data) {
+      try {
+        fetch(`${FIREBASE_URL}/${weekKey}.json`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+      } catch {}
+    }
+
+    function Avatar({ name, size = 36 }) {
+      const initials = name.split(" ").map(p => p[0]).join("").slice(0,2);
+      const hue = (name.charCodeAt(0) * 37 + name.charCodeAt(name.length-1) * 13) % 360;
+      return (
+        <div style={{
+          width:size, height:size, borderRadius:"50%", flexShrink:0,
+          background:`hsl(${hue},65%,60%)`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          color:"#fff", fontSize:size*0.35, fontWeight:"bold",
+          letterSpacing:-0.5,
+          boxShadow:`0 2px 6px hsla(${hue},65%,40%,0.35)`
+        }}>{initials}</div>
+      );
+    }
+
+    function Chip({ active, onClick, label, color }) {
+      return (
+        <button onClick={onClick} style={{
+          width:38, height:38, borderRadius:10, border:"none", cursor:"pointer",
+          background: active ? color : "#EBEBEB",
+          color: active ? "#fff" : "#BDBDBD",
+          fontSize: active ? 18 : 11,
+          fontWeight:"bold",
+          transition:"all 0.15s cubic-bezier(.34,1.56,.64,1)",
+          transform: active ? "scale(1.15)" : "scale(1)",
+          boxShadow: active ? `0 4px 12px ${color}55` : "none",
+          display:"flex", alignItems:"center", justifyContent:"center"
+        }}>
+          {active ? "✓" : <span style={{fontSize:11,color:"#CCC"}}>{label}</span>}
+        </button>
+      );
+    }
+
+    function ProgressBar({ value, max, color }) {
+      const pct = max === 0 ? 0 : (value / max) * 100;
+      return (
+        <div style={{height:8, background:"#EBEBEB", borderRadius:99, overflow:"hidden", flex:1}}>
+          <div style={{
+            height:"100%", width:`${pct}%`, background:color,
+            borderRadius:99, transition:"width 0.4s ease",
+            boxShadow: pct > 0 ? `0 0 6px ${color}88` : "none"
+          }}/>
+        </div>
+      );
+    }
+
+    function ColumnGraph({ cat, data }) {
+      const cfg = CATS[cat];
+      const [animated, setAnimated] = useState(false);
+      useEffect(() => { const t = setTimeout(() => setAnimated(true), 80); return () => clearTimeout(t); }, []);
+
+      const sorted = [...STUDENTS].map(s => ({ name:s, score:calcScore(data[s], cat) })).sort((a,b) => b.score - a.score);
+      const max = cfg.max;
+      const CHART_H = 180;
+      const barColors = sorted.map((_,i) => i===0?"#FFD93D":i===1?"#C0C0C0":i===2?"#CD7F32":cfg.color);
+
+      return (
+        <div style={{padding:"0 4px 80px"}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#555",margin:"10px 8px 14px",textTransform:"uppercase",letterSpacing:1}}>
+            {cfg.emoji} {cfg.label} — Class Results
+          </div>
+          <div style={{overflowX:"auto",paddingBottom:8}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"0 8px",minWidth:sorted.length*46,height:CHART_H+54}}>
+              {sorted.map((s,i) => {
+                const pct = max===0?0:s.score/max;
+                const barH = animated ? Math.max(pct*CHART_H, s.score>0?8:0) : 0;
+                return (
+                  <div key={s.name} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:"0 0 40px",gap:4}}>
+                    <div style={{fontSize:11,fontWeight:800,color:s.score>0?barColors[i]:"#CCC",minHeight:16,transition:"opacity 0.4s",opacity:animated?1:0}}>
+                      {s.score>0?(i<3?MEDALS[i]:s.score):""}
+                    </div>
+                    <div style={{width:34,height:`${barH}px`,background:s.score>0?`linear-gradient(to top,${barColors[i]},${barColors[i]}CC)`:"#EBEBEB",borderRadius:"6px 6px 0 0",transition:`height 0.6s cubic-bezier(.34,1.1,.64,1) ${i*18}ms`,boxShadow:s.score>0?`0 4px 12px ${barColors[i]}55`:"none",position:"relative"}}>
+                      {s.score>0&&animated&&(
+                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)"}}>
+                          <Avatar name={s.name} size={18}/>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{width:34,height:2,background:"#DDD",borderRadius:1}}/>
+                    <div style={{fontSize:9,fontWeight:700,color:"#666",textAlign:"center",lineHeight:1.2,maxWidth:40,wordBreak:"break-word"}}>
+                      {s.name.split(" ")[0]}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:16,padding:"10px 12px 0",flexWrap:"wrap"}}>
+            {["1st","2nd","3rd","Others"].map((lbl,i)=>(
+              <div key={lbl} style={{display:"flex",alignItems:"center",gap:5}}>
+                <div style={{width:12,height:12,borderRadius:3,background:i===0?"#FFD93D":i===1?"#C0C0C0":i===2?"#CD7F32":cfg.color}}/>
+                <span style={{fontSize:10,color:"#999",fontWeight:700}}>{lbl}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{background:"#fff",borderRadius:12,margin:"12px 4px 0",padding:"12px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+            <div style={{fontSize:12,fontWeight:800,color:"#555",marginBottom:8}}>Score breakdown</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {cat==="homework"?(
+                <>
+                  <div style={{fontSize:12,color:"#666"}}>✅ Submitted: <strong style={{color:cfg.color}}>{STUDENTS.filter(s=>data[s].homework).length}</strong></div>
+                  <div style={{fontSize:12,color:"#666"}}>⏳ Not yet: <strong style={{color:"#AAA"}}>{STUDENTS.filter(s=>!data[s].homework).length}</strong></div>
+                </>
+              ):(
+                [5,4,3,2,1,0].map(score=>{
+                  const count=sorted.filter(s=>s.score===score).length;
+                  if(count===0)return null;
+                  return(
+                    <div key={score} style={{background:score===5?cfg.soft:"#F5F5F5",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,color:score===5?cfg.dark:"#555"}}>
+                      {score}/5 · {count} student{count!==1?"s":""}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function DrillView({ cat, data, toggle, onBack }) {
+      const cfg = CATS[cat];
+      const [viewMode, setViewMode] = useState("list");
+      const sorted = [...STUDENTS].sort((a,b)=>calcScore(data[b],cat)-calcScore(data[a],cat));
+
+      return (
+        <div style={{minHeight:"100vh",background:cfg.bg}}>
+          <div style={{background:cfg.color,padding:"14px 16px 10px",position:"sticky",top:0,zIndex:10,boxShadow:`0 4px 20px ${cfg.color}66`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <button onClick={onBack} style={{background:"rgba(255,255,255,0.25)",border:"none",borderRadius:8,padding:"5px 10px",color:"#fff",fontSize:13,fontWeight:"bold",cursor:"pointer"}}>← Back</button>
+              <div style={{fontSize:24}}>{cfg.emoji}</div>
+              <div style={{flex:1}}>
+                <div style={{color:"#fff",fontSize:18,fontWeight:800,lineHeight:1}}>{cfg.label}</div>
+                <div style={{color:"rgba(255,255,255,0.8)",fontSize:11}}>{cfg.desc}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6,marginBottom:cat!=="homework"&&viewMode==="list"?8:0}}>
+              {[["list","📋 List"],["graph","📊 Graph"]].map(([mode,lbl])=>(
+                <button key={mode} onClick={()=>setViewMode(mode)} style={{flex:1,padding:"7px",border:"none",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:12,background:viewMode===mode?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.2)",color:viewMode===mode?cfg.dark:"#fff",transition:"all 0.2s"}}>{lbl}</button>
+              ))}
+            </div>
+            {viewMode==="list"&&cat!=="homework"&&(
+              <div style={{display:"grid",gridTemplateColumns:"40px 1fr 38px 38px 38px 38px 38px 36px",gap:4,marginTop:4}}>
+                <div/><div/>
+                {DAYS.map(d=>(<div key={d} style={{textAlign:"center",fontSize:12,fontWeight:800,color:"rgba(255,255,255,0.9)"}}>{d}</div>))}
+                <div style={{textAlign:"center",fontSize:12,fontWeight:800,color:"rgba(255,255,255,0.9)"}}>⭐</div>
+              </div>
+            )}
+          </div>
+
+          {viewMode==="graph" ? (
+            <ColumnGraph cat={cat} data={data}/>
+          ) : (
+            <div style={{padding:"10px 12px 80px"}}>
+              {sorted.map((student,i)=>{
+                const score=calcScore(data[student],cat);
+                return(
+                  <div key={student} style={{background:"#fff",borderRadius:14,padding:"10px 12px",marginBottom:8,display:"grid",gridTemplateColumns:cat==="homework"?"40px 1fr auto":"40px 1fr 38px 38px 38px 38px 38px 36px",gap:6,alignItems:"center",boxShadow:i<3?`0 3px 14px ${cfg.color}33`:"0 1px 4px rgba(0,0,0,0.06)",border:i<3?`2px solid ${cfg.soft}`:"2px solid transparent"}}>
+                    <div style={{position:"relative"}}>
+                      <Avatar name={student} size={34}/>
+                      {i<3&&<div style={{position:"absolute",top:-6,right:-6,fontSize:14,lineHeight:1}}>{MEDALS[i]}</div>}
+                    </div>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:"#222"}}>{student}</div>
+                      {cat!=="homework"&&(
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}>
+                          <ProgressBar value={score} max={5} color={cfg.color}/>
+                          <span style={{fontSize:11,color:cfg.color,fontWeight:800,minWidth:28}}>{score}/5</span>
+                        </div>
+                      )}
+                    </div>
+                    {cat==="homework"?(
+                      <button onClick={()=>toggle(student,"homework")} style={{background:data[student].homework?cfg.color:"#EBEBEB",color:data[student].homework?"#fff":"#AAA",border:"none",borderRadius:12,padding:"8px 18px",fontSize:14,fontWeight:800,cursor:"pointer",transition:"all 0.2s cubic-bezier(.34,1.56,.64,1)",transform:data[student].homework?"scale(1.05)":"scale(1)",boxShadow:data[student].homework?`0 4px 12px ${cfg.color}55`:"none"}}>
+                        {data[student].homework?"✓ Done!":"Not yet"}
+                      </button>
+                    ):(
+                      <>
+                        {DAYS.map(day=>(<Chip key={day} active={data[student][cat][day]} onClick={()=>toggle(student,cat,day)} label={day[0]} color={cfg.color}/>))}
+                        <div style={{textAlign:"center",fontSize:15,fontWeight:800,color:score===5?cfg.color:"#CCC"}}>{score===5?"🌟":score||""}</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {cat!=="homework"&&(
+                <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",marginTop:8,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:13,fontWeight:800,color:"#555",marginBottom:10}}>Class Total by Day</div>
+                  <div style={{display:"flex",gap:10}}>
+                    {DAYS.map(day=>{
+                      const count=STUDENTS.filter(s=>data[s][cat][day]).length;
+                      return(
+                        <div key={day} style={{flex:1,textAlign:"center"}}>
+                          <div style={{fontSize:22,fontWeight:800,color:count===STUDENTS.length?cfg.color:"#444"}}>{count}</div>
+                          <ProgressBar value={count} max={STUDENTS.length} color={cfg.color}/>
+                          <div style={{fontSize:11,color:"#999",marginTop:4}}>{day}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function OverallGraph({ ranked }) {
+      const [animated,setAnimated]=useState(false);
+      useEffect(()=>{ const t=setTimeout(()=>setAnimated(true),80); return()=>clearTimeout(t); },[]);
+      const MAX=11; const CHART_H=160;
+      const podiumColors=["#FFD93D","#C0C0C0","#CD7F32"];
+      return(
+        <div style={{overflowX:"auto",paddingBottom:8}}>
+          <div style={{display:"flex",alignItems:"flex-end",gap:5,padding:"20px 10px 0",minWidth:ranked.length*44,height:CHART_H+52}}>
+            {ranked.map((s,i)=>{
+              const pct=s.total/MAX;
+              const barH=animated?Math.max(pct*CHART_H,s.total>0?6:0):0;
+              const barColor=i<3?podiumColors[i]:"#A78BFA";
+              const dH=animated?(s.diaries/MAX)*CHART_H:0;
+              const rH=animated?(s.reading/MAX)*CHART_H:0;
+              const hwH=animated?(s.homework/MAX)*CHART_H:0;
+              return(
+                <div key={s.name} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:"0 0 38px",gap:3}}>
+                  <div style={{fontSize:10,fontWeight:800,color:barColor,minHeight:14,opacity:animated?1:0,transition:"opacity 0.4s",textAlign:"center"}}>
+                    {s.total>0?(i<3?MEDALS[i]:s.total):""}
+                  </div>
+                  <div style={{width:30,display:"flex",flexDirection:"column-reverse",alignItems:"stretch",height:`${barH}px`,borderRadius:"5px 5px 0 0",overflow:"hidden",transition:`height 0.65s cubic-bezier(.34,1.1,.64,1) ${i*15}ms`,boxShadow:s.total>0?`0 3px 10px ${barColor}44`:"none"}}>
+                    <div style={{height:`${dH}px`,background:CATS.diaries.color,transition:`height 0.5s ease ${i*15}ms`,flexShrink:0}}/>
+                    <div style={{height:`${rH}px`,background:CATS.reading.color,transition:`height 0.5s ease ${i*15+100}ms`,flexShrink:0}}/>
+                    <div style={{height:`${hwH}px`,background:CATS.homework.color,transition:`height 0.5s ease ${i*15+200}ms`,flexShrink:0}}/>
+                  </div>
+                  <div style={{width:30,height:2,background:"#DDD",borderRadius:1}}/>
+                  <div style={{fontSize:8,fontWeight:700,color:"#777",textAlign:"center",lineHeight:1.2,maxWidth:38,wordBreak:"break-word"}}>{s.name.split(" ")[0]}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:12,padding:"8px 12px",flexWrap:"wrap"}}>
+            {Object.entries(CATS).map(([cat,cfg])=>(
+              <div key={cat} style={{display:"flex",alignItems:"center",gap:5}}>
+                <div style={{width:10,height:10,borderRadius:2,background:cfg.color}}/>
+                <span style={{fontSize:10,color:"#888",fontWeight:700}}>{cfg.emoji} {cfg.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function LeaderboardView({ data, onDrill }) {
+      const [lbView,setLbView]=useState("table");
+      const ranked=[...STUDENTS].map(s=>({name:s,total:calcTotal(data[s]),diaries:calcScore(data[s],"diaries"),reading:calcScore(data[s],"reading"),homework:calcScore(data[s],"homework")})).sort((a,b)=>b.total-a.total);
+      return(
+        <div style={{padding:"12px 12px 80px"}}>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#999",marginBottom:10,letterSpacing:1,textTransform:"uppercase"}}>Tap a category to see full results</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              {Object.entries(CATS).map(([cat,cfg])=>{
+                const catRanked=[...STUDENTS].map(s=>({name:s,score:calcScore(data[s],cat)})).sort((a,b)=>b.score-a.score);
+                return(
+                  <button key={cat} onClick={()=>onDrill(cat)} style={{background:"#fff",border:"none",borderRadius:16,padding:"12px 10px",cursor:"pointer",textAlign:"left",boxShadow:`0 4px 16px ${cfg.color}22`,borderTop:`4px solid ${cfg.color}`,transition:"transform 0.15s"}}
+                    onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"}
+                    onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                    <div style={{fontSize:26,marginBottom:4}}>{cfg.emoji}</div>
+                    <div style={{fontSize:13,fontWeight:800,color:"#333",marginBottom:8}}>{cfg.label}</div>
+                    {catRanked.slice(0,3).map((s,i)=>(
+                      <div key={s.name} style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                        <span style={{fontSize:13}}>{MEDALS[i]}</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:10,fontWeight:700,color:"#444",lineHeight:1.2}}>{s.name.split(" ")[0]}</div>
+                          <ProgressBar value={s.score} max={cfg.max} color={cfg.color}/>
+                        </div>
+                        <span style={{fontSize:11,fontWeight:800,color:cfg.color}}>{s.score}</span>
+                      </div>
+                    ))}
+                    <div style={{marginTop:8,fontSize:10,color:cfg.color,fontWeight:800,textAlign:"center",letterSpacing:0.5}}>See all →</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {ranked[0]&&(
+            <div style={{background:"linear-gradient(135deg,#FFD93D,#FF6B6B)",borderRadius:16,padding:"16px",marginBottom:14,boxShadow:"0 6px 24px rgba(255,107,107,0.3)"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.8)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>👑 This Week's Champion</div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <Avatar name={ranked[0].name} size={52}/>
+                <div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>{ranked[0].name}</div>
+                  <div style={{fontSize:13,color:"rgba(255,255,255,0.9)"}}>{ranked[0].total} pts · 📔{ranked[0].diaries} · 📚{ranked[0].reading} · 📝{ranked[0].homework}</div>
+                </div>
+                <div style={{marginLeft:"auto",fontSize:40}}>🏆</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            {[["table","📋 Table"],["graph","📊 Graph"]].map(([mode,lbl])=>(
+              <button key={mode} onClick={()=>setLbView(mode)} style={{flex:1,padding:"9px",border:"none",borderRadius:10,cursor:"pointer",fontWeight:800,fontSize:13,background:lbView===mode?"#222":"#EBEBEB",color:lbView===mode?"#FFD93D":"#888",transition:"all 0.2s"}}>{lbl}</button>
+            ))}
+          </div>
+
+          {lbView==="graph"?(
+            <div style={{background:"#fff",borderRadius:16,padding:"14px 0 0",boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
+              <div style={{fontSize:12,fontWeight:800,color:"#555",padding:"0 14px 10px",textTransform:"uppercase",letterSpacing:1}}>⭐ Overall Score per Student</div>
+              <OverallGraph ranked={ranked}/>
+            </div>
+          ):(
+            <div style={{background:"#fff",borderRadius:16,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
+              <div style={{background:"#222",padding:"10px 14px",display:"grid",gridTemplateColumns:"28px 1fr 32px 32px 32px 38px",gap:6,alignItems:"center"}}>
+                {["#","Name","📔","📚","📝","⭐"].map((h,i)=>(<div key={i} style={{color:"#FFD93D",fontSize:11,fontWeight:800,textAlign:i>1?"center":"left"}}>{h}</div>))}
+              </div>
+              {ranked.map((s,i)=>(
+                <div key={s.name} style={{display:"grid",gridTemplateColumns:"28px 1fr 32px 32px 32px 38px",gap:6,padding:"9px 14px",alignItems:"center",background:i===0?"#FFFBEA":i===1?"#F5F5F5":i===2?"#FFF5F0":i%2===0?"#fff":"#FAFAFA",borderBottom:"1px solid #F0F0F0"}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:i===0?"#FFD93D":i===1?"#C0C0C0":i===2?"#CD7F32":"#EBEBEB",fontSize:i<3?14:10,color:i<3?"#fff":"#999",fontWeight:800}}>{i<3?MEDALS[i]:i+1}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <Avatar name={s.name} size={26}/>
+                    <span style={{fontSize:13,fontWeight:700,color:"#222"}}>{s.name}</span>
+                  </div>
+                  {["diaries","reading","homework"].map(cat=>(<div key={cat} style={{textAlign:"center",fontSize:13,fontWeight:800,color:CATS[cat].color}}>{s[cat]}</div>))}
+                  <div style={{textAlign:"center",fontSize:14,fontWeight:800,color:"#222"}}>{s.total}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function TrackerView({ data, toggle, onDrill }) {
+      const [cat,setCat]=useState("diaries");
+      const cfg=CATS[cat];
+      return(
+        <div>
+          <div style={{display:"flex",gap:8,padding:"10px 12px 0",background:"#fff",borderBottom:"1px solid #F0F0F0"}}>
+            {Object.entries(CATS).map(([k,c])=>(
+              <button key={k} onClick={()=>setCat(k)} style={{flex:1,padding:"9px 6px",borderRadius:"10px 10px 0 0",border:"none",cursor:"pointer",fontWeight:800,fontSize:13,background:cat===k?c.color:"transparent",color:cat===k?"#fff":"#AAA",boxShadow:cat===k?`0 -2px 10px ${c.color}44`:"none",transition:"all 0.2s"}}>{c.emoji} {c.label}</button>
+            ))}
+          </div>
+          <div style={{background:cfg.bg,minHeight:"80vh",padding:"12px 12px 80px"}}>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+              <button onClick={()=>onDrill(cat)} style={{background:cfg.color,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",boxShadow:`0 3px 10px ${cfg.color}55`}}>Full view ↗</button>
+            </div>
+            {cat!=="homework"&&(
+              <div style={{display:"grid",gridTemplateColumns:"44px 1fr 38px 38px 38px 38px 38px 30px",gap:4,marginBottom:6,paddingLeft:2}}>
+                <div/><div/>
+                {DAYS.map(d=>(<div key={d} style={{textAlign:"center",fontSize:11,fontWeight:800,color:cfg.dark}}>{d}</div>))}
+                <div/>
+              </div>
+            )}
+            {STUDENTS.map(student=>{
+              const score=calcScore(data[student],cat);
+              return(
+                <div key={student} style={{background:"#fff",borderRadius:12,padding:"8px 10px",marginBottom:6,display:"grid",gridTemplateColumns:cat==="homework"?"44px 1fr auto":"44px 1fr 38px 38px 38px 38px 38px 30px",gap:5,alignItems:"center",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+                  <Avatar name={student} size={34}/>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#222"}}>{student}</div>
+                    {cat!=="homework"&&(
+                      <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
+                        <ProgressBar value={score} max={5} color={cfg.color}/>
+                        <span style={{fontSize:10,color:cfg.color,fontWeight:800}}>{score}</span>
+                      </div>
+                    )}
+                  </div>
+                  {cat==="homework"?(
+                    <button onClick={()=>toggle(student,"homework")} style={{background:data[student].homework?cfg.color:"#EBEBEB",color:data[student].homework?"#fff":"#AAA",border:"none",borderRadius:10,padding:"7px 14px",fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.2s cubic-bezier(.34,1.56,.64,1)",transform:data[student].homework?"scale(1.05)":"scale(1)",boxShadow:data[student].homework?`0 4px 10px ${cfg.color}55`:"none"}}>
+                      {data[student].homework?"✓ Done!":"Not yet"}
+                    </button>
+                  ):(
+                    <>
+                      {DAYS.map(day=>(<Chip key={day} active={data[student][cat][day]} onClick={()=>toggle(student,cat,day)} label={day[0]} color={cfg.color}/>))}
+                      <div style={{textAlign:"center",fontSize:13,fontWeight:800,color:score>0?cfg.color:"#CCC"}}>{score===5?"🌟":score||""}</div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    const PASSWORD = "1302";
+
+    function App() {
+      const [authed,setAuthed]=useState(()=>sessionStorage.getItem("4c-auth")==="yes");
+      const [pwInput,setPwInput]=useState("");
+      const [pwError,setPwError]=useState(false);
+      const [page,setPage]=useState("track");
+      const [drill,setDrill]=useState(null);
+      const [exported,setExported]=useState(false);
+      const weekKey=getWeekKey();
+      const [data,setData]=useState(initData());
+      const [loaded,setLoaded]=useState(false);
+
+      function handleLogin(){
+        if(pwInput===PASSWORD){
+          sessionStorage.setItem("4c-auth","yes");
+          setAuthed(true);
+          setPwError(false);
+        } else {
+          setPwError(true);
+          setPwInput("");
+        }
+      }
+
+      if(!authed) return(
+        <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1C1917 0%,#292524 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",padding:20}}>
+          <div style={{background:"#fff",borderRadius:24,padding:"40px 32px",width:"100%",maxWidth:340,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+            <div style={{fontSize:52,marginBottom:8}}>🔒</div>
+            <div style={{fontSize:22,fontWeight:800,color:"#1C1917",marginBottom:4}}>Class 4C</div>
+            <div style={{fontSize:13,color:"#888",marginBottom:28}}>Home Learning Tracker</div>
+            <input
+              type="password"
+              placeholder="Enter password"
+              value={pwInput}
+              onChange={e=>{setPwInput(e.target.value);setPwError(false);}}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:pwError?"2px solid #FF6B6B":"2px solid #E5E5E5",fontSize:16,fontFamily:"'Nunito',sans-serif",fontWeight:700,outline:"none",textAlign:"center",letterSpacing:4,marginBottom:8,boxSizing:"border-box",transition:"border 0.2s"}}
+              autoFocus
+            />
+            {pwError&&<div style={{color:"#FF6B6B",fontSize:12,fontWeight:700,marginBottom:8}}>Incorrect password — try again</div>}
+            <button onClick={handleLogin} style={{width:"100%",padding:"13px",background:"#FFD93D",color:"#222",border:"none",borderRadius:12,fontSize:15,fontWeight:800,cursor:"pointer",marginTop:4,boxShadow:"0 4px 14px rgba(255,217,61,0.4)",transition:"all 0.2s"}}>
+              Unlock 🚀
+            </button>
+          </div>
+        </div>
+      );
+
+      useEffect(()=>{
+        setLoaded(false);
+        loadData(weekKey).then(saved=>{
+          setData(saved||initData());
+          setLoaded(true);
+        });
+      },[weekKey]);
+
+      function toggle(student,cat,day=null){
+        setData(prev=>{
+          const next={...prev,[student]:{...prev[student]}};
+          if(cat==="homework") next[student]={...next[student],homework:!next[student].homework};
+          else next[student]={...next[student],[cat]:{...next[student][cat],[day]:!next[student][cat][day]}};
+          saveData(weekKey,next);
+          return next;
+        });
+      }
+
+      function exportCSV(){
+        const headers = [
+          "Student",
+          "Diary Mon","Diary Tue","Diary Wed","Diary Thu","Diary Fri","Diary Total",
+          "Reading Mon","Reading Tue","Reading Wed","Reading Thu","Reading Fri","Reading Total",
+          "Homework",
+          "Overall Total"
+        ];
+        const d = new Date();
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day===0?-6:1);
+        const mon = new Date(new Date(d).setDate(diff));
+        const weekLabel = `Week of ${mon.getDate()}/${mon.getMonth()+1}/${mon.getFullYear()}`;
+
+        const rows = STUDENTS.map(s => {
+          const sd = data[s];
+          const dDays = DAYS.map(dy => sd.diaries[dy] ? "Y" : "");
+          const dTotal = DAYS.filter(dy => sd.diaries[dy]).length;
+          const rDays = DAYS.map(dy => sd.reading[dy] ? "Y" : "");
+          const rTotal = DAYS.filter(dy => sd.reading[dy]).length;
+          const hw = sd.homework ? "Y" : "";
+          const overall = dTotal + rTotal + (sd.homework ? 1 : 0);
+          return [s, ...dDays, dTotal, ...rDays, rTotal, hw, overall];
+        });
+
+        const summaryDiaries = DAYS.map(dy => STUDENTS.filter(s=>data[s].diaries[dy]).length);
+        const summaryReading = DAYS.map(dy => STUDENTS.filter(s=>data[s].reading[dy]).length);
+        const hwCount = STUDENTS.filter(s=>data[s].homework).length;
+        const summaryRow = [
+          "CLASS TOTAL",
+          ...summaryDiaries, summaryDiaries.reduce((a,b)=>a+b,0),
+          ...summaryReading, summaryReading.reduce((a,b)=>a+b,0),
+          hwCount, ""
+        ];
+
+        const csvLines = [
+          [`4C Home Learning — ${weekLabel}`],
+          [],
+          headers,
+          ...rows,
+          [],
+          summaryRow
+        ].map(row => row.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(","));
+
+        const blob = new Blob([csvLines.join("\n")], {type:"text/csv;charset=utf-8;"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `4C-home-learning-${mon.getFullYear()}-${mon.getMonth()+1}-${mon.getDate()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setExported(true);
+        setTimeout(()=>setExported(false), 2500);
+      }
+
+      if(!loaded) return(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#1C1917",gap:16}}>
+          <div style={{fontSize:40}}>🚀</div>
+          <div style={{color:"#FFD93D",fontSize:18,fontWeight:800,fontFamily:"'Nunito',sans-serif"}}>Loading 4C...</div>
+          <div style={{color:"#888",fontSize:13,fontFamily:"'Nunito',sans-serif"}}>Syncing with the cloud</div>
+        </div>
+      );
+
+      if(drill) return <DrillView cat={drill} data={data} toggle={toggle} onBack={()=>setDrill(null)}/>;
+
+      return(
+        <div style={{minHeight:"100vh",background:"#F8F8F8",paddingBottom:70}}>
+          <div style={{background:"linear-gradient(135deg,#222 0%,#333 100%)",padding:"14px 16px 12px",boxShadow:"0 4px 20px rgba(0,0,0,0.2)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{color:"#FFD93D",fontSize:10,letterSpacing:3,textTransform:"uppercase",fontWeight:800}}>Class 4C</div>
+                <div style={{color:"#fff",fontSize:20,fontWeight:800,marginTop:2}}>Home Learning Tracker 🚀</div>
+              </div>
+              <button onClick={exportCSV} style={{background:exported?"#22C55E":"#FFD93D",color:exported?"#fff":"#222",border:"none",borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",transition:"all 0.3s",display:"flex",alignItems:"center",gap:5,boxShadow:exported?"0 3px 10px rgba(34,197,94,0.4)":"0 3px 10px rgba(255,217,61,0.4)"}}>
+                <span style={{fontSize:15}}>{exported?"✓":"⬇"}</span>
+                {exported?"Downloaded!":"Export CSV"}
+              </button>
+            </div>
+          </div>
+
+          {page==="track"
+            ?<TrackerView data={data} toggle={toggle} onDrill={setDrill}/>
+            :<LeaderboardView data={data} onDrill={setDrill}/>
+          }
+
+          <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",display:"flex",boxShadow:"0 -4px 20px rgba(0,0,0,0.1)",borderTop:"1px solid #F0F0F0"}}>
+            {[["track","📋","Track"],["board","🏆","Leaderboard"]].map(([p,e,l])=>(
+              <button key={p} onClick={()=>setPage(p)} style={{flex:1,padding:"12px 0 10px",border:"none",background:page===p?"#FFD93D":"transparent",color:page===p?"#222":"#AAA",fontWeight:800,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"background 0.2s"}}>
+                <span style={{fontSize:20}}>{e}</span>{l}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
